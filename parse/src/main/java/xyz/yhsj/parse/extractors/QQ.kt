@@ -2,22 +2,37 @@ package xyz.yhsj.parse.extractors
 
 import org.json.JSONArray
 import xyz.yhsj.parse.entity.MediaFile
+import xyz.yhsj.parse.entity.MediaType
+import xyz.yhsj.parse.entity.MediaUrl
 import xyz.yhsj.parse.entity.ParseResult
 import xyz.yhsj.parse.intfc.Parse
 import xyz.yhsj.parse.jsonObject
 import xyz.yhsj.parse.match1
 import xyz.yhsj.parse.matchAll
 import xyz.yhsj.parse.utils.HttpRequest
+import java.util.*
 
 /**QQ视频
  * Created by LOVE on 2017/4/21 021.
+ * http://vv.video.qq.com/gethls?vid=i0137wt2799&charge=0&otype=json&platform=11001&_rnd=1494992462
+ *
+ *http://vv.video.qq.com/getinfo?vid=a00235p3f13&otype=json&dtype=3
+http://vv.video.qq.com/getinfo?
+&vid=a00235p3f13
+&otype=json
+&defnpayver=1//显示蓝光
+&_rnd=1495026640
+&dtype=3
  */
 object QQ : Parse {
+    val seed = "#$#@#*ad"
+
+
     override fun download(url: String): ParseResult {
         try {
             return downloadByiteSite(url)
         } catch (e: Exception) {
-            return ParseResult(code = 500, msg = e.message ?: "")
+            return ParseResult(code = 500, msg = e.message ?: "未知错误")
         }
     }
 
@@ -33,7 +48,6 @@ object QQ : Parse {
             val shareid = chars[chars.lastIndex]
 
             return kg_qq_download_by_shareid(shareid)
-
         }
 
         if ("live.qq.com" in url) {
@@ -45,11 +59,19 @@ object QQ : Parse {
             val content = HttpRequest.get(url).body()
             val vids = "\\bvid=(\\w+)".matchAll(content)
 
+            val mediaFile = MediaFile(title = "微信视频")
+            mediaFile.type = MediaType.VIDEO_LIST
+
             for (vid in vids) {
-                qq_download_by_vid(vid)
+                try {
+                    val myMedia = qq_download_by_vid(vid)
+                    mediaFile.mediaList.add(myMedia)
+                } catch (e: Exception) {
+
+                }
             }
             //TODO列表
-            return ParseResult()
+            return ParseResult(data = mediaFile)
         }
 
         if ("v.qq.com/page" in url) {
@@ -73,19 +95,86 @@ object QQ : Parse {
             vid = "\\bvid=(\\w+)".match1(url)
             title = vid
         } else {
-            val content = HttpRequest.get(url).body()
+            val content = HttpRequest.get(url)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Charset", "UTF-8,*;q=0.5")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:54.0) Gecko/20100101 Firefox/54.0")
+                    //处理内部重定向
+                    .followRedirects(true)
+                    .body()
             vid = "\\bvid=(\\w+)".match1(url)
             // val vid2="\\bvid=(\\w+)".match1(content)
             vid2 = "vid\"*\\s*:\\s*\"\\s*([^\"]+)\"".match1(content)
 
         }
-        return qq_download_by_vid(vid ?: vid2 ?: "")
+
+        try {
+            val mediaFile = qq_download_by_vid(vid ?: vid2 ?: "")
+            return ParseResult(data = mediaFile)
+        } catch (e: Exception) {
+            return ParseResult(code = 500, msg = e.message ?: "未知错误")
+        }
     }
 
     /**
-     * 通过id获取视频
+     * 解密算法实在费劲
+     * 这个有问题,以后再改,
      */
-    fun qq_download_by_vid(vid: String): ParseResult {
+    fun qq_download_by_vid(vid: String): MediaFile {
+
+        val mediaFile = MediaFile()
+        //http://vv.video.qq.com/getinfo?charge=0&vid=$vid&defaultfmt=auto&otype=json&guid=5d449203f36ca784400f46199ff08cf8&platform=10201&defnpayver=1&appVer=3.0.98&sdtfrom=v1010&host=v.qq.com&sphttps=0&_rnd=${Date().time}&defn=shd&fhdswitch=1&show1080p=1&isHLS=1&dtype=3&sphls=1&newplatform=10201&defsrc=2&_qv_rmt=brpeWPIBA190346G1%3D&_qv_rmt2=QjGfvUM4145127sQA%3D&_${Date().time}=
+
+        //val info_api = " http://vv.video.qq.com/getinfo?&vid=$vid&otype=json&defnpayver=1&_rnd=${Date().time}&dtype=3&_${Date().time}="
+
+        //http://vv.video.qq.com/getinfo?charge=0&vid=u0023ickfto&defaultfmt=auto&otype=json&guid=5d449203f36ca784400f46199ff08cf8&platform=10201&defnpayver=1&appVer=3.0.100&sdtfrom=v1010&host=v.qq.com&ehost=http%3A%2F%2Fv.qq.com%2Ftv%2Fp%2Ftopic%2Fzetianji%2Findex.html&sphttps=0&_rnd=1495436087&defn=shd&fhdswitch=0&show1080p=1&isHLS=1&dtype=3&sphls=1&newplatform=10201&defsrc=2&_qv_rmt=2A03HORFA19468FIA%3D&_qv_rmt2=3kho1Sbm145307kAg%3D&_1495436087840=
+
+        //下面参数有问题,不对会被限速(三个特殊的)
+        val info_api = "http://vv.video.qq.com/getinfo?charge=0&vid=$vid&defaultfmt=auto&otype=json&guid=5d449203f36ca784400f46199ff08cf8&platform=10201&defnpayver=1&appVer=3.0.98&sdtfrom=v1010&host=v.qq.com&sphttps=0&_rnd=${Date().time}&defn=shd&fhdswitch=1&show1080p=1&isHLS=1&dtype=3&sphls=1&newplatform=10201&defsrc=2&_qv_rmt=brpeWPIBA190346G1%3D&_qv_rmt2=QjGfvUM4145127sQA%3D&_${Date().time}="
+
+        println(info_api)
+
+        val info = HttpRequest.get(info_api)
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .header("Accept-Charset", "UTF-8,*;q=0.5")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:54.0) Gecko/20100101 Firefox/54.0")
+                .body().replace("QZOutputJson=", "")
+                .jsonObject
+
+        val parts_ti = info.getJSONObject("vl").getJSONArray("vi").getJSONObject(0).getString("ti")
+
+        mediaFile.title = parts_ti
+
+        val video_types = info.getJSONObject("fl").getJSONArray("fi")
+
+        val video_urls = info.getJSONObject("vl").getJSONArray("vi").getJSONObject(0).getJSONObject("ul").getJSONArray("ui")
+
+        for (i in 0..video_types.length() - 1) {
+            val mediaUrl = MediaUrl(parts_ti)
+            val stream_type = video_types.getJSONObject(i).getString("cname")
+            mediaUrl.stream_type = stream_type
+
+            if (video_urls.length() > i) {
+                val video_url = video_urls.getJSONObject(i)
+                mediaUrl.playUrl.add(video_url.getString("url") + video_url.getJSONObject("hls").getString("pt"))
+                mediaUrl.downUrl.add(video_url.getString("url") + video_url.getJSONObject("hls").getString("pt"))
+            }
+
+            mediaFile.url.add(mediaUrl)
+        }
+        return mediaFile
+    }
+
+
+    /**
+     * 通过id获取视频
+     * 以前的解析算法
+     */
+    fun qq_download_by_vid2(vid: String): ParseResult {
+
+        println(vid)
+        println(Date().time)
+
         val info_api = "http://vv.video.qq.com/getinfo?otype=json&appver=3%2E2%2E19%2E333&platform=11&defnpayver=1&vid=$vid"
         val info = HttpRequest.get(info_api)
                 .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -98,8 +187,8 @@ object QQ : Parse {
         var parts_prefix = info.getJSONObject("vl").getJSONArray("vi").getJSONObject(0).getJSONObject("ul").getJSONArray("ui").getJSONObject(0).getString("url")
         val parts_formats = info.getJSONObject("fl").getJSONArray("fi")
 
-        val mediaFile=MediaFile()
-        mediaFile.title=parts_ti
+        val mediaFile = MediaFile()
+        mediaFile.title = parts_ti
 
         if (parts_prefix.endsWith("/")) {
             parts_prefix = parts_prefix.substring(0, parts_prefix.length - 1)
@@ -222,7 +311,70 @@ object QQ : Parse {
         println(real_url)
         println(lyric)
 
-        return ParseResult()
+        val mediaFile = MediaFile()
+        mediaFile.title = song_name
+
+        val mediaUrl = MediaUrl(song_name)
+        mediaUrl.playUrl.add(real_url)
+
+        mediaFile.url.add(mediaUrl)
+
+        return ParseResult(data = mediaFile)
+    }
+
+
+    fun func_xx(a: String, b: String, c: String, d: String, f: String = (Date().time / 1000).toString()) {
+        var g: String = ""
+        var h: String = ""
+
+        val j = _func_hex_to_string(_func_ha(a + b + f + seed + g + h + d + c))
+
+    }
+
+    fun _func_hex_to_string(a: String): String {
+
+        return ""
+    }
+
+    fun _func_ha(d: String): String {
+        val c = Array(64, { i -> 0 or (4294967296 * Math.abs(Math.sin((i + 1).toDouble()))).toLong().toInt() })
+        val j = d
+        val k = j.length
+        val i = Array(k, { _ -> 0 })
+
+        for (m in 0..k - 1) {
+            i[m shr 2] = i[m shr 2] or ((if (j[m].toInt() != 0) j[m].toInt() else 128) shl 8 * (m % 4))
+        }
+
+        i[k shr 2] = i[k shr 2] or (128 shl 8 * (k % 4))
+
+        val e = 1732584193
+        val f = -271733879
+        val l = intArrayOf(1732584193, -271733879, e.inv(), f.inv())
+
+        val a = 16
+        val d = (k + 8 shr 6) * a + 14
+        i[d] = 8 * k
+
+        val m = 0
+
+        while (d > m) {
+
+            val h = 0
+            val k = l
+
+            while (h > 64) {
+
+            }
+
+
+        }
+
+
+
+        l.forEach { println(it) }
+
+        return ""
     }
 
 
